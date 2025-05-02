@@ -4,18 +4,16 @@ import numpy as np
 
 class Watermark:
     def __init__(self, n_keypoints=100, base_patch_size=7.0, max_patch_size=15):
-        self.PATH = 'images'
         self.N_KEYPOINTS = n_keypoints
         
         self.BASE_PATCH_SIZE = base_patch_size
         self.MAX_PATCH_SIZE = max_patch_size
 
-    def embed(self, img_filename, watermark_filename):
+    def embed(self, img, watermark):
         print("Embedding watermark")
-        img = self.__read_img(img_filename)
-        watermark = self.__read_img(watermark_filename)
 
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY) 
+        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY) 
+        img_gray = self.__to_grayscale(img)
 
         n_kps = self.__apply_sift(img_gray)
         adjusted_watermark = self.__adjust_watermark(watermark)
@@ -25,12 +23,6 @@ class Watermark:
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
-
-            # TODO: Remove
-            # print(f"---")
-            # print(f"KP {count}: ({x}, {y}) | Angle: KP: {round(kp.angle, 1)}")
-            # print(transformed_wm)
-            # print(f"---")
 
             h_patch, w_patch = transformed_wm.shape
             x_diff = w_patch // 2
@@ -47,16 +39,13 @@ class Watermark:
 
             count += 1
 
-        self.__write_img('embeded-img.png', img)
-        img_saved = cv2.imread("images/embeded-img.png", cv2.IMREAD_UNCHANGED)
         return img
 
-    def recover(self, img_filename, watermark_filename):
+    def recover(self, img, watermark):
         print("Recovering watermark")
-        img = self.__read_img(img_filename)
-        watermark = self.__read_img(watermark_filename)
 
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img_gray = self.__to_grayscale(img)
         kps = self.__apply_sift(img_gray)
         
         adjusted_watermark = self.__adjust_watermark(watermark)
@@ -75,12 +64,6 @@ class Watermark:
 
             if match_ratio < 1.0:
                 verified = False
-
-                # TODO: Remove
-                print(f"KP {count}: ({x}, {y}) | Angle: KP: {round(kp.angle, 1)}")
-
-                print(patch)
-                print(transformed_wm)
                 break
             count += 1
         return verified
@@ -98,13 +81,11 @@ class Watermark:
         ]
         return patch
 
-    def tampered(self, img_filename, watermark_filename):
+    def tampered(self, img, watermark):
         print("Checking for tampering")
 
-        img = self.__read_img(img_filename)
-        watermark = self.__read_img(watermark_filename)
-
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img_gray = self.__to_grayscale(img)
         kps = self.__apply_sift(img_gray)
 
         adjusted_watermark = self.__adjust_watermark(watermark)
@@ -130,9 +111,6 @@ class Watermark:
 
         print(f"Verified keypoints: {len(verified)} / {total} ({verified_ratio:.2%})")
         
-        tampered_img = cv2.drawKeypoints(img, tampered, img, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        self.__write_img('tampered-test-img.png', tampered_img)
-        
         return verified_ratio < 1.0
 
     def __apply_transform(self, img, kp, inverse=False):
@@ -157,7 +135,6 @@ class Watermark:
 
         return transformed_patch
 
-    # TODO: Maybe change this
     def __apply_sift(self, img_gray):
         sift = cv2.SIFT_create()
         kps = sift.detect(img_gray, None)
@@ -204,7 +181,6 @@ class Watermark:
 
     def __scale_kp(self, kp):
         scale = kp.size / self.BASE_PATCH_SIZE
-        # scale = max(kp.size, self.BASE_PATCH_SIZE) / self.BASE_PATCH_SIZE
         
         patch_size = int(np.ceil(self.BASE_PATCH_SIZE * scale))
         patch_size = min(patch_size, self.MAX_PATCH_SIZE)
@@ -220,34 +196,10 @@ class Watermark:
         _, img_binary = cv2.threshold(img_gray, 127, 1, cv2.THRESH_BINARY)
         return img_binary
 
-    def __read_img(self, filename):
-        img_path = self.__get_img_path(filename)
-        img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise ValueError(f"Could not read image from {img_path}")
-        if img.ndim == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
+    def __to_grayscale(self, img):
+        if len(img.shape) == 2:
+            return img
+        elif img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
         elif img.shape[2] == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
-        return img
-
-    def __write_img(self, filename, img):
-        img_path = self.__get_img_path(filename)
-        cv2.imwrite(f'{img_path}', img)
-        print(f"Watermarked image saved ({img_path})")
-
-    def __get_img_path(self, filename):
-        os.makedirs(self.PATH, exist_ok=True)
-        return os.path.join(self.PATH, filename)
-
-if __name__ == '__main__':
-    watermark = Watermark()
-
-    watermark.embed('img_rotated.png', 'watermark.png')
-    print("")
-
-    result = watermark.recover('embeded-img.png', 'watermark.png')
-    print(f"Recovered: {result}\n")
-
-    result = watermark.tampered('embeded-img.png', 'watermark.png')
-    print(f"Tampered: {result}\n")
+            return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
