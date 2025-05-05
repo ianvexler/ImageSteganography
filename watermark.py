@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 class Watermark:
-    def __init__(self, n_keypoints=100, base_patch_size=7.0, max_patch_size=15):
+    def __init__(self, n_keypoints=50, base_patch_size=7.0, max_patch_size=15):
         self.N_KEYPOINTS = n_keypoints
         
         self.BASE_PATCH_SIZE = base_patch_size
@@ -13,7 +13,7 @@ class Watermark:
         print("Embedding watermark")
 
         # img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY) 
-        img_gray = self.__to_grayscale(img)
+        img_gray = self.__img_to_grayscale(img)
 
         n_kps = self.__apply_sift(img_gray)
         adjusted_watermark = self.__adjust_watermark(watermark)
@@ -44,15 +44,13 @@ class Watermark:
     def recover(self, img, watermark):
         print("Recovering watermark")
 
-        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img_gray = self.__to_grayscale(img)
+        img_gray = self.__img_to_grayscale(img)
         kps = self.__apply_sift(img_gray)
         
         adjusted_watermark = self.__adjust_watermark(watermark)
 
         verified = True
 
-        count = 1
         for kp in kps:
             x, y = int(kp.pt[0]), int(kp.pt[1])
         
@@ -65,7 +63,7 @@ class Watermark:
             if match_ratio < 1.0:
                 verified = False
                 break
-            count += 1
+
         return verified
 
     def __get_kp_patch(self, img, kp):
@@ -84,13 +82,14 @@ class Watermark:
     def tampered(self, img, watermark):
         print("Checking for tampering")
 
-        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img_gray = self.__to_grayscale(img)
+        img_copy = img.copy()
+
+        img_gray = self.__img_to_grayscale(img)
         kps = self.__apply_sift(img_gray)
 
         adjusted_watermark = self.__adjust_watermark(watermark)
 
-        verified, tampered = [], []
+        tampered = []
 
         for kp in kps:
             x, y = int(kp.pt[0]), int(kp.pt[1])
@@ -99,19 +98,20 @@ class Watermark:
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
    
             match = np.sum(patch == transformed_wm)
-            match_ratio = match / adjusted_watermark.size
+            match_ratio = match / transformed_wm.size
 
-            if match_ratio == 1.0:
-                verified.append(kp)
-            else:
+            if match_ratio < 1.0:
                 tampered.append(kp)
-
-        total = len(verified) + len(tampered)
-        verified_ratio = len(verified) / total if total > 0 else 0
-
-        print(f"Verified keypoints: {len(verified)} / {total} ({verified_ratio:.2%})")
+                cv2.circle(img_copy, (x, y), radius=4, color=(0, 0, 255), thickness=2)
         
-        return verified_ratio < 1.0
+        img_tampered_keypoints = None
+
+        if len(tampered):
+            img_tampered_keypoints = cv2.drawKeypoints(
+                img, tampered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+            )
+
+        return ((len(kps) - len(tampered)) / len(kps)), img_tampered_keypoints
 
     def __apply_transform(self, img, kp, inverse=False):
         scale, patch_size = self.__scale_kp(kp)
@@ -196,7 +196,7 @@ class Watermark:
         _, img_binary = cv2.threshold(img_gray, 127, 1, cv2.THRESH_BINARY)
         return img_binary
 
-    def __to_grayscale(self, img):
+    def __img_to_grayscale(self, img):
         if len(img.shape) == 2:
             return img
         elif img.shape[2] == 4:
