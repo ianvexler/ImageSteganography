@@ -57,10 +57,7 @@ class Watermark:
             patch = self.__get_kp_patch(img, kp)
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
 
-            match = np.sum(patch == transformed_wm)
-            match_ratio = match / transformed_wm.size
-
-            if match_ratio < 1.0:
+            if not np.array_equal(patch, transformed_wm):
                 verified = False
                 break
 
@@ -96,22 +93,28 @@ class Watermark:
 
             patch = self.__get_kp_patch(img, kp)
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
-   
-            match = np.sum(patch == transformed_wm)
-            match_ratio = match / transformed_wm.size
 
-            if match_ratio < 1.0:
-                tampered.append(kp)
+            if not np.array_equal(patch, transformed_wm):
+                similarity = self.__calc_patch_similarity(patch, transformed_wm)
+                
+                tampered.append((kp, similarity))
                 cv2.circle(img_copy, (x, y), radius=4, color=(0, 0, 255), thickness=2)
         
         img_tampered_keypoints = None
 
         if len(tampered):
+            tampered_kps = [t[0] for t in tampered]
+
             img_tampered_keypoints = cv2.drawKeypoints(
-                img, tampered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+                img, tampered_kps, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
             )
 
-        return ((len(kps) - len(tampered)) / len(kps)), img_tampered_keypoints
+        if len(tampered):
+            avg_similarity = np.mean([sim for _, sim in tampered])
+        else:
+            avg_similarity = 1.0
+
+        return ((len(kps) - len(tampered)) / len(kps)), avg_similarity, img_tampered_keypoints
 
     def __apply_transform(self, img, kp, inverse=False):
         scale, patch_size = self.__scale_kp(kp)
@@ -195,6 +198,12 @@ class Watermark:
         img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
         _, img_binary = cv2.threshold(img_gray, 127, 1, cv2.THRESH_BINARY)
         return img_binary
+
+    def __calc_patch_similarity(self, patch, wm):
+        hamming = np.sum(patch != wm)
+        score = hamming / wm.size
+
+        return score
 
     def __img_to_grayscale(self, img):
         if len(img.shape) == 2:

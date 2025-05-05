@@ -64,12 +64,22 @@ def tamper():
     watermark_arr = __decode_file(watermark_img)
 
     try:
-        verified, output_img = wm.tampered(image_arr, watermark_arr)
+        verified, avg_similarity, output_img = wm.tampered(image_arr, watermark_arr)
 
         result = not (verified == 1.0)
 
         if result:
-            message = f"Tampering Detected: {verified * 100:.1f}% keypoints verified"
+            message = f"Tampering Detected: {verified * 100:.1f}% of keypoints verified"
+
+            if avg_similarity > 0.85:
+                suggestion = "Minimal watermark mismatch."
+            elif avg_similarity > 0.6:
+                suggestion = "Moderate watermark mismatch."
+            else:
+                suggestion = "Significant watermark mismatch."
+
+            message = f"{message}<br>{suggestion}"
+
         else:
             message = "No Tampering Detected"
 
