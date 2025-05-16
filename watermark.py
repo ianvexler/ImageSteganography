@@ -12,7 +12,6 @@ class Watermark:
     def embed(self, img, watermark):
         print("Embedding watermark")
 
-        # img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY) 
         img_gray = self.__img_to_grayscale(img)
 
         n_kps = self.__apply_sift(img_gray)
@@ -109,6 +108,20 @@ class Watermark:
                 img, tampered_kps, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
             )
 
+            # Adds arrows to each tampered keypoint
+            for kp in tampered_kps:
+                pt = (int(kp.pt[0]), int(kp.pt[1]))
+                
+                start_pt = (pt[0] - 20, pt[1] - 20)
+                cv2.arrowedLine(
+                    img_tampered_keypoints, 
+                    start_pt, 
+                    pt, 
+                    color=(255, 0, 0),
+                    thickness=2,
+                    tipLength=0.3
+                )
+
         if len(tampered):
             avg_similarity = np.mean([sim for _, sim in tampered])
         else:
@@ -124,7 +137,6 @@ class Watermark:
         
         angle = round(kp.angle, 1)
         angle = -angle if inverse else angle
-
 
         M = cv2.getRotationMatrix2D(center, angle, scale)
 
@@ -149,7 +161,7 @@ class Watermark:
         kps = sorted(kps, key=lambda kp: -kp.response)
 
         valid_kps = []
-        min_distance = self.MAX_PATCH_SIZE  # You can adjust this value if needed
+        min_distance = self.MAX_PATCH_SIZE
 
         for kp in kps:
             # Get dynamic patch size for each keypoint
