@@ -19,7 +19,6 @@ class Watermark:
 
         count = 1
         for kp in n_kps:
-            print(f"KP: {kp.pt}, angle: {kp.angle}, size: {kp.size}")
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
@@ -89,7 +88,6 @@ class Watermark:
         tampered = []
 
         for kp in kps:
-            print(f"KP: {kp.pt}, angle: {kp.angle}, size: {kp.size}")
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
             patch = self.__get_kp_patch(img, kp)
@@ -126,10 +124,11 @@ class Watermark:
 
         if len(tampered):
             avg_similarity = np.mean([sim for _, sim in tampered])
+            accuracy_percent = round((1.0 - avg_similarity), 3)
         else:
-            avg_similarity = 1.0
+            accuracy_percent = 1.0
 
-        return ((len(kps) - len(tampered)) / len(kps)), avg_similarity, img_tampered_keypoints
+        return ((len(kps) - len(tampered)) / len(kps)), accuracy_percent, img_tampered_keypoints
 
     def __apply_transform(self, img, kp, inverse=False):
         scale, patch_size = self.__scale_kp(kp)
