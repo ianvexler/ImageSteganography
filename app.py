@@ -78,7 +78,7 @@ def tamper():
             else:
                 suggestion = "Significant watermark mismatch."
 
-            message = f"{message}<br>{suggestion}"
+            message = f"{message}<br> average {avg_similarity}"
 
         else:
             message = "No Tampering Detected"

@@ -19,6 +19,7 @@ class Watermark:
 
         count = 1
         for kp in n_kps:
+            print(f"KP: {kp.pt}, angle: {kp.angle}, size: {kp.size}")
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
             transformed_wm = self.__apply_transform(adjusted_watermark, kp)
@@ -88,6 +89,7 @@ class Watermark:
         tampered = []
 
         for kp in kps:
+            print(f"KP: {kp.pt}, angle: {kp.angle}, size: {kp.size}")
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
             patch = self.__get_kp_patch(img, kp)
@@ -95,10 +97,10 @@ class Watermark:
 
             if not np.array_equal(patch, transformed_wm):
                 similarity = self.__calc_patch_similarity(patch, transformed_wm)
-                
+
                 tampered.append((kp, similarity))
                 cv2.circle(img_copy, (x, y), radius=4, color=(0, 0, 255), thickness=2)
-        
+
         img_tampered_keypoints = None
 
         if len(tampered):
@@ -135,7 +137,7 @@ class Watermark:
         img = cv2.resize(img, (patch_size, patch_size), interpolation=cv2.INTER_NEAREST)
         center = (patch_size // 2, patch_size // 2)
         
-        angle = round(kp.angle, 1)
+        angle = round(kp.angle, 0)
         angle = -angle if inverse else angle
 
         M = cv2.getRotationMatrix2D(center, angle, scale)
