@@ -1,74 +1,103 @@
 import cv2
 import os
 import numpy as np
+import matplotlib.cm as cm
 
 class Watermark:
     def __init__(self, n_keypoints=50, base_patch_size=7.0, max_patch_size=15):
         self.N_KEYPOINTS = n_keypoints
-        
         self.BASE_PATCH_SIZE = base_patch_size
         self.MAX_PATCH_SIZE = max_patch_size
 
     def embed(self, img, watermark):
-        print("Embedding watermark")
+        """
+        Embeds a binary watermark into an image by modifying the least significant bit (LSB)
+        of the blue channel at keypoints detected via SIFT.
+        
+        Returns:
+            - The image with embeded watermarks
+        """
 
-        img_gray = self.__img_to_grayscale(img)
-
-        n_kps = self.__apply_sift(img_gray)
+        # Identify kps on carrier image using sift
+        n_kps = self.__apply_sift(img)
+        
+        # Convert the watermark image to binary
         adjusted_watermark = self.__adjust_watermark(watermark)
 
-        count = 1
+        # Iterate through all selected kps and embed watermark
         for kp in n_kps:
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
-            transformed_wm = self.__apply_transform(adjusted_watermark, kp)
+            # Transform watermark patch to match keypoint's scale and orientation
+            transformed_wm = self.__apply_wm_transform(adjusted_watermark, kp)
 
+            # Calculate patch size and offsets
             h_patch, w_patch = transformed_wm.shape
             x_diff = w_patch // 2
             y_diff = h_patch // 2
 
+            # Extract blue channel patch centered at keypoint
             submatrix = img[
                 (y - y_diff):(y + y_diff + 1), 
                 (x - x_diff):(x + x_diff + 1), 
                 0
             ]
+            
+            # Ensure patch size matches watermark
             if submatrix.shape[:2] == transformed_wm.shape:
+                # Clear LSB of each pixel and embed watermark
                 submatrix &= 254
                 submatrix |= transformed_wm.astype(np.uint8)
-
-            count += 1
 
         return img
 
     def recover(self, img, watermark):
-        print("Recovering watermark")
-
-        img_gray = self.__img_to_grayscale(img)
-        kps = self.__apply_sift(img_gray)
+        """
+        Attempts to recover a previously embedded binary watermark from an image.
+        Recovery succeeds only if all patches match the expected watermark exactly.
         
+        Returns:
+            - The success status of the recovery process
+        """
+
+        # Detect SIFT keypoints in provided image
+        kps = self.__apply_sift(img)
+        
+        # Convert the watermark image to binary
         adjusted_watermark = self.__adjust_watermark(watermark)
 
-        verified = True
-
+        # Compare expected and extracted patches at each keypoint
         for kp in kps:
             x, y = int(kp.pt[0]), int(kp.pt[1])
         
+            # Extract the LSB patch around the keypoint
             patch = self.__get_kp_patch(img, kp)
-            transformed_wm = self.__apply_transform(adjusted_watermark, kp)
 
+            # Apply the same transform used during embedding
+            transformed_wm = self.__apply_wm_transform(adjusted_watermark, kp)
+
+            # If any patch doesn't match exactly recovery fails
             if not np.array_equal(patch, transformed_wm):
-                verified = False
-                break
+                return False
 
-        return verified
+        return True
 
     def __get_kp_patch(self, img, kp):
+        """
+        Extracts the LSB patch from the blue channel given a keypoint.
+        The patch size is dynamically determined based on the keypoint's scale.
+        """
+
+        # Determine patch size based on the keypoint's scale
         scale, patch_size = self.__scale_kp(kp)
+
+        # Get the LSB of the blue channel
         img_lsb = img[..., 0] & 1
 
         x, y = int(kp.pt[0]), int(kp.pt[1])
         half_size = patch_size // 2
 
+        # Extract a patch centered on the keypoint
         patch = img_lsb[
             max(y - half_size, 0):y + half_size + 1,
             max(x - half_size, 0):x + half_size + 1
@@ -76,82 +105,113 @@ class Watermark:
         return patch
 
     def tampered(self, img, watermark):
-        print("Checking for tampering")
+        """
+        Checks whether an image has been tampered with by comparing extracted watermark patches
+        to the expected watermark.
 
-        img_copy = img.copy()
+        Returns:
+            - Proportion of keypoints fully verified
+            - Inverse of average Hamming similarity
+            - Image with overlaid keypoint verification status
+        """
 
-        img_gray = self.__img_to_grayscale(img)
-        kps = self.__apply_sift(img_gray)
+        # Separate BGR and alpha channels
+        bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        alpha = img[..., 3]
 
+        # Create a working copy for visualization
+        img_copy = bgr.copy()
+
+        # Detect SIFT keypoints in the image
+        kps = self.__apply_sift(img)
+
+        # Convert the watermark image to binary
         adjusted_watermark = self.__adjust_watermark(watermark)
 
-        tampered = []
+        all_similarities = []
+        verified_count = 0
 
+        # Compare expected and extracted patches at each keypoint
         for kp in kps:
             x, y = int(kp.pt[0]), int(kp.pt[1])
 
+            # Extract patch from image and generate expected transformed watermark
             patch = self.__get_kp_patch(img, kp)
-            transformed_wm = self.__apply_transform(adjusted_watermark, kp)
+            transformed_wm = self.__apply_wm_transform(adjusted_watermark, kp)
 
-            if not np.array_equal(patch, transformed_wm):
-                similarity = self.__calc_patch_similarity(patch, transformed_wm)
+            # Calculate Hamming similarity between patch and expected watermark
+            similarity = self.__calc_patch_similarity(patch, transformed_wm)
+            all_similarities.append(similarity)
 
-                tampered.append((kp, similarity))
-                cv2.circle(img_copy, (x, y), radius=4, color=(0, 0, 255), thickness=2)
+            # Choose marker color based on similarity level
+            if similarity == 0:
+                verified_count += 1
+                color = (0, 255, 0)  # Green
+            elif similarity <= 0.4:
+                color = (0, 165, 255)  # Orange
+            else:
+                color = (0, 0, 255)  # Red
 
-        img_tampered_keypoints = None
+            # Draw circle on output image, coloured based on similarity
+            cv2.circle(img_copy, (x, y), radius=4, color=color, thickness=2)
 
-        if len(tampered):
-            tampered_kps = [t[0] for t in tampered]
+        # Reattach alpha channel
+        img_output = cv2.merge((img_copy, alpha))
 
-            img_tampered_keypoints = cv2.drawKeypoints(
-                img, tampered_kps, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
-            )
-
-            # Adds arrows to each tampered keypoint
-            for kp in tampered_kps:
-                pt = (int(kp.pt[0]), int(kp.pt[1]))
-                
-                start_pt = (pt[0] - 20, pt[1] - 20)
-                cv2.arrowedLine(
-                    img_tampered_keypoints, 
-                    start_pt, 
-                    pt, 
-                    color=(255, 0, 0),
-                    thickness=2,
-                    tipLength=0.3
-                )
-
-        if len(tampered):
-            avg_similarity = np.mean([sim for _, sim in tampered])
-            accuracy_percent = round((1.0 - avg_similarity), 3)
+        # Calculate similarity metrics
+        if all_similarities:
+            avg_similarity = round(np.mean(all_similarities), 3)
+            verified = round((verified_count / len(kps)), 2)
         else:
-            accuracy_percent = 1.0
+            avg_similarity = 1.0
+            verified = 1
 
-        return ((len(kps) - len(tampered)) / len(kps)), accuracy_percent, img_tampered_keypoints
+        return verified, (1 - avg_similarity), img_output
 
-    def __apply_transform(self, img, kp, inverse=False):
+    def __apply_wm_transform(self, img, kp):
+        """
+        Applies a scale and rotation transformation to the binary watermark to
+        align with the scale and orientation of the given keypoint.
+        """
+
+        # Compute scale and patch size from keypoint
         scale, patch_size = self.__scale_kp(kp)
 
+        # Resize watermark to match patch size
         img = cv2.resize(img, (patch_size, patch_size), interpolation=cv2.INTER_NEAREST)
         center = (patch_size // 2, patch_size // 2)
         
-        angle = round(kp.angle, 0)
-        angle = -angle if inverse else angle
+        # Round keypoint angle to the nearest 45 degrees for better consistency
+        angle = round(kp.angle / 45) * 45
 
+        # Compute affine rotation matrix using keypoint's angle and scale
         M = cv2.getRotationMatrix2D(center, angle, scale)
 
+        # Adjust the transformation matrix to keep the output centered
         output_center = (patch_size // 2, patch_size // 2)
         M[0, 2] += output_center[0] - center[0]
         M[1, 2] += output_center[1] - center[1]
 
+        # Apply affine transformation to the patch
         transformed_patch = cv2.warpAffine(img, M, (patch_size, patch_size), flags=cv2.INTER_NEAREST)
+        
+        # Convert result to binary
         transformed_patch = (transformed_patch * 255).astype(np.uint8)
         _, transformed_patch = cv2.threshold(transformed_patch, 127, 1, cv2.THRESH_BINARY)
 
         return transformed_patch
 
-    def __apply_sift(self, img_gray):
+    def __apply_sift(self, img):
+        """
+        Detects SIFT keypoints in an image.
+        Ensures that selected keypoints are not too close together and that patches remain
+        within image bounds.
+        """
+
+        # Convert image to grayscale
+        img_gray = self.__img_to_grayscale(img)
+
+        # Detect keypoints using SIFT
         sift = cv2.SIFT_create()
         kps = sift.detect(img_gray, None)
 
@@ -162,63 +222,81 @@ class Watermark:
         kps = sorted(kps, key=lambda kp: -kp.response)
 
         valid_kps = []
-        min_distance = self.MAX_PATCH_SIZE
-
         for kp in kps:
-            # Get dynamic patch size for each keypoint
+            # Determine patch size based on keypoint scale
             scale, patch_size = self.__scale_kp(kp)
             patch_half_size = patch_size // 2
 
+            # Adjust keypoint location for padding check
             x, y = kp.pt
             x -= pad
             y -= pad
 
+            # Skip keypoints too close to image boundaries
             if not (0 <= x < w and 0 <= y < h):
                 continue
 
             too_close = False
-            for akp in valid_kps:
-                # Compute distance between keypoints based on patch size
-                dx = kp.pt[0] - akp.pt[0]
-                dy = kp.pt[1] - akp.pt[1]
+            for v_kp in valid_kps:
+                # Measure distance between keypoints based on patch size
+                dx = kp.pt[0] - v_kp.pt[0]
+                dy = kp.pt[1] - v_kp.pt[1]
 
-                # Adjust the distance threshold based on the patch sizes
-                if dx * dx + dy * dy < (patch_half_size * 2) ** 2:  # Distance threshold
+                # Discard if keypoint is too close to an existing one
+                if dx * dx + dy * dy < (patch_half_size * 2) ** 2:
                     too_close = True
                     break
 
+            # Add keypoint if separated
             if not too_close:
                 valid_kps.append(kp)
 
+            # Stop if desired number of keypoints is reached
             if len(valid_kps) == self.N_KEYPOINTS:
                 break
 
         return valid_kps
 
     def __scale_kp(self, kp):
+        """
+        Calculates the appropriate scale and patch size for a given keypoint.
+        """
+    
+        # Compute scale factor relative to the base patch size
         scale = kp.size / self.BASE_PATCH_SIZE
         
+        # Scale the patch size and round to nearest multiple of step
+        step = 2
         patch_size = int(np.ceil(self.BASE_PATCH_SIZE * scale))
-        patch_size = min(patch_size, self.MAX_PATCH_SIZE)
-        patch_size = max(patch_size, int(self.BASE_PATCH_SIZE))
-
+        patch_size = round(patch_size / step) * step
+            
+        # Ensure patch size is odd to ensure symmetry
         if patch_size % 2 == 0:
             patch_size += 1
 
         return scale, patch_size
 
     def __adjust_watermark(self, img):
-        img_gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+        """
+        Converts the input watermark image to a binary matrix
+        """
+        img_gray = self.__img_to_grayscale(img)
         _, img_binary = cv2.threshold(img_gray, 127, 1, cv2.THRESH_BINARY)
         return img_binary
 
     def __calc_patch_similarity(self, patch, wm):
+        """
+        Calculates the Hamming similarity between a recovered patch and the expected watermark patch.
+        """
         hamming = np.sum(patch != wm)
         score = hamming / wm.size
 
         return score
 
     def __img_to_grayscale(self, img):
+        """
+        Converts an input image to grayscale, handling different channel configurations
+        """
         if len(img.shape) == 2:
             return img
         elif img.shape[2] == 4:

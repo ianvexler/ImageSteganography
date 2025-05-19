@@ -93,16 +93,16 @@ def tamper():
         traceback.print_exc()
         return "Error whilst detecting"
 
-    if result:
-        _, buffer = cv2.imencode('.png', output_img)
-        img_base64 = base64.b64encode(buffer).decode('utf-8')
-        response["image"] = img_base64
+    _, buffer = cv2.imencode('.png', output_img)
+    img_base64 = base64.b64encode(buffer).decode('utf-8')
+    response["image"] = img_base64
 
     return jsonify(response)
 
 def __decode_file(file_obj):
     file_bytes = np.frombuffer(file_obj.read(), np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_UNCHANGED)
+    
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGRA)
     elif img.shape[2] == 3:
