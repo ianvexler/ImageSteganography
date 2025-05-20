@@ -87,7 +87,7 @@ def tamper():
             message = f"Tampering Detected: {verified * 100:.1f}% of keypoints verified"
 
             if avg_similarity > 0.8:
-                suggestion = "Minimal watermark mismatch."
+                suggestion = "Small watermark mismatch."
             elif avg_similarity > 0.6:
                 suggestion = "Moderate watermark mismatch."
             else:

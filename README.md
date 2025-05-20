@@ -29,4 +29,5 @@ This project implements an image watermarking tool using image-to-image steganog
 ## Notes
 
 - Example images are located in the `static/images/` folder.
+- Sample images are also available to download in the UI
 - Images were sourced from [Pixabay](https://pixabay.com/).
