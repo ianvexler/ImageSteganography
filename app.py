@@ -3,7 +3,6 @@ from watermark import Watermark
 import cv2
 import numpy as np
 import io
-import traceback
 import base64
 
 app = Flask(__name__)
@@ -18,60 +17,76 @@ def embed():
     carrier = request.files.get('carrier')
     watermark_img = request.files.get('watermark')
 
-    if not carrier or not watermark_img:
-        return "Missing file(s).", 400
+    try:
+        carrier_img = __decode_file(carrier)
+        watermark_arr = __decode_file(watermark_img)
 
-    carrier_img = __decode_file(carrier)
-    watermark_arr = __decode_file(watermark_img)
+        result_img = wm.embed(carrier_img, watermark_arr)
+        _, buffer = cv2.imencode('.png', result_img)
+        img = base64.b64encode(buffer).decode('utf-8')
 
-    result_img = wm.embed(carrier_img, watermark_arr)
+        response = {
+            "result": True,
+            "status": "success",
+            "message": "Watermark embedded",
+            "image": img,
+            "image_name": 'embedded',
+        }
 
-    _, buffer = cv2.imencode('.png', result_img)
-    return send_file(io.BytesIO(buffer.tobytes()), mimetype='image/png', as_attachment=True, download_name='embedded.png')
+    except Exception as e:
+        print("Error during embeding:", e)
+        response = {
+            "result": False,
+            "status": "danger",
+            "message": "Error during embeding"
+        }
+    
+    return jsonify(response)
 
 @app.route('/recover', methods=['POST'])
 def recover():
     image = request.files.get('image')
     watermark_img = request.files.get('watermark')
 
-    if not image or not watermark_img:
-        return "Missing file(s).", 400
-
-    image_arr = __decode_file(image)
-    watermark_arr = __decode_file(watermark_img)
-
     try:
+        image_arr = __decode_file(image)
+        watermark_arr = __decode_file(watermark_img)
+
         result = wm.recover(image_arr, watermark_arr)
 
         response = {
             "result": result,
             "status": "success" if result else "danger",
-            "message": f"Authenticity Verified: {"Yes" if result else "No"}"
+            "message": f"Authenticity Verified: {'Yes' if result else 'No'}"
         }
 
-        return jsonify(response)
     except Exception as e:
         print("Error during watermark recovery:", e)
-        traceback.print_exc()
-        return "Error whilst recovering"
+        response = {
+            "result": False,
+            "status": "danger",
+            "message": "Error during watermark recovery"
+        }
+    
+    return jsonify(response)
 
 @app.route('/tamper', methods=['POST'])
 def tamper():
     image = request.files.get('image')
     watermark_img = request.files.get('watermark')
 
-    image_arr = __decode_file(image)
-    watermark_arr = __decode_file(watermark_img)
-
     try:
-        verified, avg_similarity, output_img = wm.tampered(image_arr, watermark_arr)
+        image_arr = __decode_file(image)
+        watermark_arr = __decode_file(watermark_img)
+
+        verified, avg_similarity, result_img = wm.tampered(image_arr, watermark_arr)
 
         result = not (verified == 1.0)
 
         if result:
             message = f"Tampering Detected: {verified * 100:.1f}% of keypoints verified"
 
-            if avg_similarity > 0.85:
+            if avg_similarity > 0.8:
                 suggestion = "Minimal watermark mismatch."
             elif avg_similarity > 0.6:
                 suggestion = "Moderate watermark mismatch."
@@ -83,19 +98,24 @@ def tamper():
         else:
             message = "No Tampering Detected"
 
+        _, buffer = cv2.imencode('.png', result_img)
+        img = base64.b64encode(buffer).decode('utf-8')
+
         response = {
             "result": result,
             "status": "warning" if result else "secondary",
-            "message": message
+            "message": message,
+            "image": img,
+            "image_name": 'tampered'
         }
+    
     except Exception as e:
-        print("Error during watermark recovery:", e)
-        traceback.print_exc()
-        return "Error whilst detecting"
-
-    _, buffer = cv2.imencode('.png', output_img)
-    img_base64 = base64.b64encode(buffer).decode('utf-8')
-    response["image"] = img_base64
+        print("Error during tampering detection:", e)
+        response = {
+            "result": False,
+            "status": "danger",
+            "message": "Error during tampering detection"
+        }
 
     return jsonify(response)
 

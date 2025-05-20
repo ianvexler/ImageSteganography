@@ -1,7 +1,5 @@
 import cv2
-import os
 import numpy as np
-import matplotlib.cm as cm
 
 class Watermark:
     def __init__(self, n_keypoints=50, base_patch_size=7.0, max_patch_size=15):
@@ -33,6 +31,7 @@ class Watermark:
 
             # Calculate patch size and offsets
             h_patch, w_patch = transformed_wm.shape
+            
             x_diff = w_patch // 2
             y_diff = h_patch // 2
 
@@ -43,11 +42,9 @@ class Watermark:
                 0
             ]
             
-            # Ensure patch size matches watermark
-            if submatrix.shape[:2] == transformed_wm.shape:
-                # Clear LSB of each pixel and embed watermark
-                submatrix &= 254
-                submatrix |= transformed_wm.astype(np.uint8)
+            # Clear LSB of each pixel and embed watermark
+            submatrix &= 254
+            submatrix |= transformed_wm.astype(np.uint8)
 
         return img
 
@@ -216,7 +213,6 @@ class Watermark:
         kps = sift.detect(img_gray, None)
 
         h, w = img_gray.shape[:2]    
-        pad = self.MAX_PATCH_SIZE // 2
 
         # Sort by strongest response
         kps = sorted(kps, key=lambda kp: -kp.response)
@@ -225,15 +221,13 @@ class Watermark:
         for kp in kps:
             # Determine patch size based on keypoint scale
             scale, patch_size = self.__scale_kp(kp)
-            patch_half_size = patch_size // 2
+            half_size = patch_size // 2
 
-            # Adjust keypoint location for padding check
-            x, y = kp.pt
-            x -= pad
-            y -= pad
+            x, y = int(kp.pt[0]), int(kp.pt[1])
 
             # Skip keypoints too close to image boundaries
-            if not (0 <= x < w and 0 <= y < h):
+            if (x - half_size < 0 or x + half_size >= w or 
+                y - half_size < 0 or y + half_size >= h):
                 continue
 
             too_close = False
@@ -242,8 +236,8 @@ class Watermark:
                 dx = kp.pt[0] - v_kp.pt[0]
                 dy = kp.pt[1] - v_kp.pt[1]
 
-                # Discard if keypoint is too close to an existing one
-                if dx * dx + dy * dy < (patch_half_size * 2) ** 2:
+                # Ignore if keypoint is too close to an existing one
+                if dx * dx + dy * dy < (half_size * 2) ** 2:
                     too_close = True
                     break
 
